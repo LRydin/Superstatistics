@@ -8,7 +8,7 @@ from scipy.optimize import root_scalar
 
 def estimate_long_time(timeseries: np.array, lag: np.array=None,
                        threshold: float=3, moment: str='kurtosis',
-                       tol: float=0.05, full: bool=False) -> np.array:
+                       tol: float=0.05, std: bool=False) -> np.array:
     """
     To find the long superstatistical time :math:`T` one needs to examine the
     distribution of the segments of the data.
@@ -19,10 +19,11 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
         A 1-dimensional timeseries of length `N`.
 
     lag: np.ndarray of ints (default `None`)
-        An array with the segments lengths to examine. If `None` or not declared,
-        it will try to find the long superstatistical time via a Newton–Raphson
-        method. Else needs a list or array of integers `>1` on which to segment
-        the data.
+        An array with the segments lengths to examine. If `None` or not
+        declared, it will try to find the long superstatistical time via
+        scalar-root finding method. It is advised to first not use a lag, to
+        find the typical long superstatistical time with a root finder, and then
+        after adjust the lag for plotting purposes.
 
     threshold: float (default `3`)
         The threshold expected to be crossed to estimate the long
@@ -40,10 +41,9 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
         The percentage error acceptable to find the long time. Should be a
         positive value between `0` and `1`.
 
-    full: bool (default `False`)
-        If `full` is `True` and a `lag` is given, returns
-        the full scan over `T` for the given lag. Note that the lag should be
-        an array of list of a set of integers `>1`.
+    std: bool (default `False`)
+        If true, returns the standard deviation around the estimated long
+        superstatistical time, if lag is given.
 
     Returns
     -------
@@ -57,8 +57,8 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
 
     Notes
     -----
-
-     - `Wikipedia: Newton Method <https://en.wikipedia.org/wiki/Newton%27s_method>`_
+     - `SciPy scalar root finder <https://docs.scipy.org/doc/scipy/reference\
+    /generated/scipy.optimize.root_scalar.html#scipy.optimize.root_scalar>`_
 
     References
     ----------
@@ -88,19 +88,20 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
             raise ValueError("Any element of lag must be >1 and smaller "
                              "than half the size of the timeseries.")
 
+    # kwargs to pass to scipy
     kwargs_for_scipy = {}
     if moment == 'kurtosis':
         kwargs_for_scipy['fisher'] = False
+        kwargs_for_scipy['nan_policy'] = 'omit'
+
 
     # function to either run through or find root
-    def fun(j):
-        if j < 3:
-            j = 3
-        if j > (N // 2):
-            j = N // 2
-        print(j)
+    def fun(j, operation):
+        # limiting conditions
+        j = 3 if j < 3 else j
+        j = N // 2 if j > (N // 2) else j
         j = int(j)
-        x = np.mean(selected_moment(
+        x = operation(selected_moment(
                         timeseries[:N - N % j].reshape((N - N % j) // j, j),
                         axis=1,
                         **kwargs_for_scipy)
@@ -108,11 +109,16 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
         return x - threshold
 
     # bulk of the operation
-    # if a lag is given
-    if isinstance(lag, (np.ndarray, list)):
+    def given_lag(operation):
         part_T = np.zeros(lag.shape[0])
         for i, ele in enumerate(lag):
-            part_T[i] = fun(ele)
+            part_T[i] = fun(ele, operation=operation)
+        return part_T
+
+    if isinstance(lag, (np.ndarray, list)):
+        part_T = given_lag(np.nanmean)
+        if std is True:
+            part_T_std = given_lag(np.nanstd)
 
     if lag is None:
         # catch warning, as this use root_scalar with integers, which can
@@ -120,24 +126,95 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-            T = root_scalar(fun, x0=10, x1=30)
+            T = root_scalar(fun, args=(np.nanmean), x0=10, x1=30)
 
     if lag is None:
-        if T.converged:
+        if T.converged and T.root > 2 and T.root < N // 2 - 1:
             return int(T.root)
         else:
-            warnings.warn("The root solver did not converge to a "
-                          "long time T.", RuntimeWarning)
+            raise ValueError("The root solver did not converge to a "
+                             "long time T.")
 
     if isinstance(lag, (np.ndarray, list)):
-        if full:
-            return part_T
+        # find the lag that minimises the problem
+
+        # seems to not work. A warning to increase lag would be nice
+        # if np.min(np.abs(np.array(part_T) - 0)) > tol:
+        #     warnings.warn("The given lag does not cover the transition "
+        #                   "wherein the long time T can be found.",
+        #                   RuntimeWarning)
+
+        # T = lag[np.argmin(np.abs(np.array(part_T) - 0))]
+        if std is True:
+            return part_T, part_T_std
         else:
-            # find the lag that minimises the problem
+            return part_T
 
-            if np.min(np.abs(np.array(part_T) - 0)) > tol:
-                raise ValueError("The given lag does not cover the transition "
-                                 "wherein the long time T can be found.")
 
-            T = lag[np.argmin(np.abs(np.array(part_T) - 0))]
-            return T
+def volatility(timeseries: np.array, T: int) -> np.array:
+    """
+    Extract the (inverse) volatility β of a timeseries given a long
+    superstatistical time :math:`T`. The (inverse) volatility β is given by
+
+    .. math::
+
+        β = \frac{1}{\langle x(t)^2 \rangle_{T} - \langle x(t) \rangle_{T}^2}.
+
+    where :math:`x(t)` is the timeseries and :math:` \langle\cdot\rangle` is the
+    expected value. The (inverse) volatility β is bounded between
+    :math:`(0,\infty)` and it is the central variable that is studied in
+    superstatistics.
+
+    Parameters
+    ----------
+    timeseries: np.ndarray
+        A 1-dimensional timeseries of length `N`.
+
+    T: int
+        The long superstatistical time :math:`T`. It can be obtained with
+        `estimate_long_time()`.
+
+
+    Returns
+    -------
+    beta: np.array
+        The (inverse) volatilities β.
+
+    References
+    ----------
+    .. [Beck2003] Beck, C., & Cohen, E. G. (2003). Superstatistics. Physica A:
+        Statistical mechanics and its applications, 322, 267--275.
+        doi: 10.1016/S0378-4371(03)00019-0
+    """
+    # length of the timeseries
+    N = timeseries.shape[0]
+
+    beta = np.nanvar(timeseries[:N - N % T].reshape((N - N % T) // T, T),
+                     axis=1)
+
+    return 1/beta[beta>0]
+
+def fit_distributions(beta: np.array, dists: list=None, lim: list=[None, None]):
+
+    if not isinstance(lim, list):
+        raise ValueError("lim must be a list with a numerical lower and upper "
+                         "bound. 'None' can be use for no bound.")
+    if not all(isinstance(x, (float, int)) for x in lim):
+        raise ValueError("lim must be a list with a numerical lower and upper "
+                         "bound. 'None' can be use for no bound.")
+
+    dists = ['lognorm', 'gengamma','invgamma','f']
+
+    kwargs_for_scipy = {}
+    if dist == 'gengamma':
+        kwargs_for_scipy['fc'] = 1
+
+    # ensure Beta is positive and apply bounds
+    beta = beta[beta>0]
+    if lim[0]:
+        beta = beta[(beta>lim[0])]
+    if lim[1]:
+        beta = beta[(beta<lim[1])]
+
+    par_north
+    getattr(st,dists_).fit(beta, **kwargs_scipy[i])
