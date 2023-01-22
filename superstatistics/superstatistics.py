@@ -90,9 +90,9 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
 
     # kwargs to pass to scipy
     kwargs_for_scipy = {}
+    kwargs_for_scipy['nan_policy'] = 'omit'
     if moment == 'kurtosis':
         kwargs_for_scipy['fisher'] = False
-        kwargs_for_scipy['nan_policy'] = 'omit'
 
 
     # function to either run through or find root
@@ -112,13 +112,13 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
     def given_lag(operation):
         part_T = np.zeros(lag.shape[0])
         for i, ele in enumerate(lag):
-            part_T[i] = fun(ele, operation=operation)
+            part_T[i] = fun(ele, operation=operation) + threshold
         return part_T
 
     if isinstance(lag, (np.ndarray, list)):
         part_T = given_lag(np.nanmean)
         if std is True:
-            part_T_std = given_lag(np.nanstd)
+            part_T_std = given_lag(np.nanstd) + threshold
 
     if lag is None:
         # catch warning, as this use root_scalar with integers, which can
