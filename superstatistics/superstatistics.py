@@ -5,10 +5,12 @@ import warnings
 import numpy as np
 from scipy import stats
 from scipy.optimize import root_scalar
+from functools import partial
 
 def estimate_long_time(timeseries: np.array, lag: np.array=None,
                        threshold: float=3, moment: str='kurtosis',
-                       tol: float=0.05, std: bool=False) -> np.array:
+                       bracket: list=[5,5], tol: float=0.05,
+                       quantiles: list=[False]) -> np.array:
     """
     To find the long superstatistical time :math:`T` one needs to examine the
     distribution of the segments of the data.
@@ -37,13 +39,17 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
         or ``numpy``'s `['mean','var']`. Defaults to `'kurtosis'`, as this is
         the common central statistical moment under examination.
 
+    bracket: list of 2 float (default `[5,5]`)
+        Determines the bounds in standard devations around the mean that is kept
+        after each moment estimation to remove extreme values.
+
     tol: float (default `0.05`)
         The percentage error acceptable to find the long time. Should be a
         positive value between `0` and `1`.
 
-    std: bool (default `False`)
-        If true, returns the standard deviation around the estimated long
-        superstatistical time, if lag is given.
+    quantiles: list (default `[False]`)
+        If values are given, returns the quantiles, accordingly, around the
+        estimated long superstatistical time (if lag is given).
 
     Returns
     -------
@@ -94,19 +100,19 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
     if moment == 'kurtosis':
         kwargs_for_scipy['fisher'] = False
 
-
     # function to either run through or find root
     def fun(j, operation):
         # limiting conditions
         j = 3 if j < 3 else j
         j = N // 2 if j > (N // 2) else j
         j = int(j)
-        x = operation(selected_moment(
+        x = selected_moment(
                         timeseries[:N - N % j].reshape((N - N % j) // j, j),
                         axis=1,
                         **kwargs_for_scipy)
-                    )
-        return x - threshold
+        x = x[(x > np.mean(x) - bracket[0] * np.std(x)) &
+              (x < np.mean(x) + bracket[1] * np.std(x))]
+        return operation(x[x>0]) - threshold
 
     # bulk of the operation
     def given_lag(operation):
@@ -117,9 +123,10 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
 
     if isinstance(lag, (np.ndarray, list)):
         part_T = given_lag(np.nanmean)
-        if std is True:
-            part_T_std = given_lag(np.nanstd) + threshold
-
+        if quantiles[0]:
+            part_T_quantiles = [given_lag(
+                            partial(np.quantile, q=q)
+                          ) for q in quantiles]
     if lag is None:
         # catch warning, as this use root_scalar with integers, which can
         # result in warnings
@@ -145,8 +152,8 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
         #                   RuntimeWarning)
 
         # T = lag[np.argmin(np.abs(np.array(part_T) - 0))]
-        if std is True:
-            return part_T, part_T_std
+        if quantiles[0]:
+            return part_T, part_T_quantiles
         else:
             return part_T
 
