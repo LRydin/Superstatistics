@@ -158,7 +158,7 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
             return part_T
 
 
-def volatility(timeseries: np.array, T: int) -> np.array:
+def volatility(timeseries: np.array, T: int, bracket: list=[5,5]) -> np.array:
     """
     Extract the (inverse) volatility β of a timeseries given a long
     superstatistical time :math:`T`. The (inverse) volatility β is given by
@@ -181,6 +181,9 @@ def volatility(timeseries: np.array, T: int) -> np.array:
         The long superstatistical time :math:`T`. It can be obtained with
         `estimate_long_time()`.
 
+    bracket: list of 2 float (default `[5,5]`)
+        Determines the bounds in standard devations around the mean that is kept
+        after each moment estimation to remove extreme values.
 
     Returns
     -------
@@ -198,6 +201,9 @@ def volatility(timeseries: np.array, T: int) -> np.array:
 
     beta = np.nanvar(timeseries[:N - N % T].reshape((N - N % T) // T, T),
                      axis=1)
+
+    beta = beta[(beta > np.mean(beta) - bracket[0] * np.std(beta)) &
+                (beta < np.mean(beta) + bracket[1] * np.std(beta))]
 
     return 1/beta[beta>0]
 
