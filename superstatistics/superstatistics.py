@@ -207,20 +207,23 @@ def volatility(timeseries: np.array, T: int, bracket: list=[5,5]) -> np.array:
 
     return 1/beta[beta>0]
 
-def fit_distributions(beta: np.array, dists: list=None, lim: list=[None, None]):
+def fit_distributions(beta: np.array, dists: list=None,
+    lim: list=[None, None]) -> dict:
 
     if not isinstance(lim, list):
         raise ValueError("lim must be a list with a numerical lower and upper "
                          "bound. 'None' can be use for no bound.")
-    if not all(isinstance(x, (float, int)) for x in lim):
+    if not all(isinstance(x, (float, int, type(None))) for x in lim):
         raise ValueError("lim must be a list with a numerical lower and upper "
-                         "bound. 'None' can be use for no bound.")
+                         "bound. `None` can be use for no bound.")
 
     dists = ['lognorm', 'gengamma','invgamma','f']
 
     kwargs_for_scipy = {}
-    if dist == 'gengamma':
-        kwargs_for_scipy['fc'] = 1
+    for dist in dists:
+        kwargs_for_scipy[dist] = {}
+        if dist == 'gengamma':
+            kwargs_for_scipy['gengamma'] = {'fc': 1}
 
     # ensure Beta is positive and apply bounds
     beta = beta[beta>0]
@@ -229,5 +232,13 @@ def fit_distributions(beta: np.array, dists: list=None, lim: list=[None, None]):
     if lim[1]:
         beta = beta[(beta<lim[1])]
 
-    par_north
-    getattr(st,dists_).fit(beta, **kwargs_scipy[i])
+    dictionary_of_fits = {dist:
+        getattr(stats, dist).fit(beta, **kwargs_for_scipy[dist])
+        for dist in dists}
+
+    return dictionary_of_fits
+
+def find_best_distribution(beta: np.array, bins=300, dists: list=None,
+    lim: list=[None, None]) -> np.array:
+
+    d = fit_distributions(beta=beta, dists=dists, lim=lim)
