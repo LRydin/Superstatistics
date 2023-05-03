@@ -1,1 +1,1 @@
-from .superstatistics import estimate_long_time, fit_distributions, volatility
+from .superstatistics import estimate_long_time, volatility, find_best_distribution

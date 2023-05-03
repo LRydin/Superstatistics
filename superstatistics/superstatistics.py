@@ -207,7 +207,7 @@ def volatility(timeseries: np.array, T: int, bracket: list=[5,5]) -> np.array:
 
     return 1/beta[beta>0]
 
-def fit_distributions(beta: np.array, dists: list=None,
+def _fit_distributions(beta: np.array, dists: list=None,
     lim: list=[None, None]) -> dict:
 
     if not isinstance(lim, list):
@@ -217,7 +217,7 @@ def fit_distributions(beta: np.array, dists: list=None,
         raise ValueError("lim must be a list with a numerical lower and upper "
                          "bound. `None` can be use for no bound.")
 
-    dists = ['lognorm', 'gengamma','invgamma','f']
+    dists = ['lognorm', 'gengamma', 'invgamma', 'f']
 
     kwargs_for_scipy = {}
     for dist in dists:
@@ -225,7 +225,7 @@ def fit_distributions(beta: np.array, dists: list=None,
         if dist == 'gengamma':
             kwargs_for_scipy['gengamma'] = {'fc': 1}
 
-    # ensure Beta is positive and apply bounds
+    # ensure beta is positive and apply bounds
     beta = beta[beta>0]
     if lim[0]:
         beta = beta[(beta>lim[0])]
@@ -240,5 +240,41 @@ def fit_distributions(beta: np.array, dists: list=None,
 
 def find_best_distribution(beta: np.array, bins=300, dists: list=None,
     lim: list=[None, None]) -> np.array:
+    """
+    Estimates the Kullback–Leibler divergence between the distribution of the
+    volatility beta and four standard distributions commonly used in
+    superstatistics: lognormal, gamma, inverse-gamma, and the F distribution.
 
-    d = fit_distributions(beta=beta, dists=dists, lim=lim)
+    Parameters
+    ----------
+    beta: np.array
+        The (inverse) volatilities β.
+
+    ... unfinished
+
+    Returns
+    -------
+    KL: dict
+        A dictionary with the scipy distributions used to fit the data and the
+        resulting Kullback–Leibler divergence between the distribution of the
+        volatility beta and the fitted distributions. Note that different
+        distributions have different number of parameters. For the four standard
+        distributions commonly used in superstatistics, lognormal distribution
+        has 2 parameters, gamma and inverse-gamma have 3 parameters, and the F
+        distribution has 4 parameters.
+
+    """
+
+    if not dists:
+        dists = ['lognorm', 'gengamma', 'invgamma', 'f']
+
+    d = _fit_distributions(beta=beta, dists=dists, lim=lim)
+
+    hist, _  = np.histogram(beta, bins=bins, density=True)
+    edge = (_[1:] + _[:-1]) / 2
+
+    KL = {dist: stats.entropy(hist,
+            getattr(stats, dist).pdf(edge, *d[dist])
+            ) for dist in dists}
+
+    return KL
