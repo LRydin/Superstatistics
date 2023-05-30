@@ -9,8 +9,7 @@ from functools import partial
 
 def estimate_long_time(timeseries: np.array, lag: np.array=None,
                        threshold: float=3, moment: str='kurtosis',
-                       bracket: list=[5,5], tol: float=0.05,
-                       quantiles: list=[False]) -> np.array:
+                       tol: float=0.05, quantiles: list=[False]) -> np.array:
     """
     To find the long superstatistical time :math:`T` one needs to examine the
     distribution of the segments of the data.
@@ -38,10 +37,6 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
         Should be a function of ``scipy.stats`` such as `['skew', 'kurtosis']`
         or ``numpy``'s `['mean','var']`. Defaults to `'kurtosis'`, as this is
         the common central statistical moment under examination.
-
-    bracket: list of 2 float (default `[5,5]`)
-        Determines the bounds in standard devations around the mean that is kept
-        after each moment estimation to remove extreme values.
 
     tol: float (default `0.05`)
         The percentage error acceptable to find the long time. Should be a
@@ -110,8 +105,6 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
                         timeseries[:N - N % j].reshape((N - N % j) // j, j),
                         axis=1,
                         **kwargs_for_scipy)
-        x = x[(x > np.mean(x) - bracket[0] * np.std(x)) &
-              (x < np.mean(x) + bracket[1] * np.std(x))]
         return operation(x[x>0]) - threshold
 
     # bulk of the operation
