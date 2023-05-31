@@ -17,7 +17,25 @@ def test_functions():
         except Exception:
             pass
 
-        # Testing simple estiamtions
+        # Testing simple estimation using root solver
         T = estimate_long_time(timeseries)
-
         assert isinstance(T, int)
+
+        # Testing use of lag
+        T = estimate_long_time(timeseries, lag=lag)
+        assert isinstance(T, np.ndarray)
+
+        # Testing use of lag and quantiles
+        T = estimate_long_time(timeseries, lag=lag, quantiles=[0.1,0.5,0.9])
+        assert isinstance(T, tuple)
+        assert isinstance(T[0], np.ndarray)
+        assert isinstance(T[1], list)
+
+        # Testing root solver with assigned threshold and moment
+        T = estimate_long_time(timeseries, lag=lag, threshold=0., moment='skew')
+
+        # Testing missing threshold
+        try:
+            estimate_long_time(timeseries, moment='std')
+        except Exception:
+            pass

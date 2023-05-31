@@ -70,15 +70,13 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
     """
 
     # Force lag to be ints if given, ensure lag > 1
-    if lag:
+    if lag is not None:
         lag = lag[lag > 1]
-        lag = np.round(lag).astype(int)
+        lag = lag.astype(int)
 
     # Assert if timeseries is 1 dimensional
     if timeseries.ndim > 1:
         assert timeseries.shape[1] == 1, "Timeseries needs to be 1 dimensional"
-
-    timeseries = timeseries.reshape(-1, 1)
 
     # length of the timeseries
     N = timeseries.shape[0]
@@ -171,7 +169,7 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
             return part_T
 
 
-def volatility(timeseries: np.array, T: int, bracket: list=[5,5]) -> np.array:
+def volatility(timeseries: np.array, T: int, bracket: list=[5, 5]) -> np.array:
     """
     Extract the (inverse) volatility β of a timeseries given a long
     superstatistical time :math:`T`. The (inverse) volatility β is given by
@@ -214,6 +212,8 @@ def volatility(timeseries: np.array, T: int, bracket: list=[5,5]) -> np.array:
 
     beta = np.nanvar(timeseries[:N - N % T].reshape((N - N % T) // T, T),
                      axis=1)
+
+    beta = 1/beta[beta>0]
 
     beta = beta[(beta > np.mean(beta) - bracket[0] * np.std(beta)) &
                 (beta < np.mean(beta) + bracket[1] * np.std(beta))]
