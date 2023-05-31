@@ -218,7 +218,7 @@ def volatility(timeseries: np.array, T: int, bracket: list=[5, 5]) -> np.array:
     beta = beta[(beta > np.mean(beta) - bracket[0] * np.std(beta)) &
                 (beta < np.mean(beta) + bracket[1] * np.std(beta))]
 
-    return 1/beta[beta>0]
+    return beta
 
 def _fit_distributions(beta: np.array, dists: list=None,
     lim: list=[None, None]) -> dict:
