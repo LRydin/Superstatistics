@@ -8,7 +8,7 @@ from scipy.optimize import root_scalar
 from functools import partial
 
 def estimate_long_time(timeseries: np.array, lag: np.array=None,
-                       threshold: float=3, moment: str='kurtosis',
+                       threshold: float=None, moment: str='kurtosis',
                        tol: float=0.05, quantiles: list=[False]) -> np.array:
     """
     To find the long superstatistical time :math:`T` one needs to examine the
@@ -24,21 +24,22 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
         declared, it will try to find the long superstatistical time via
         scalar-root finding method. It is advised to first not use a lag, to
         find the typical long superstatistical time with a root finder, and then
-        after adjust the lag for plotting purposes.
+        after adjust the lag for plotting purposes. If given, `lag > 1`.
 
-    threshold: float (default `3`)
+    threshold: float (default `3.`)
         The threshold expected to be crossed to estimate the long
-        superstatistical time :math:`T`. Defaults to `3`, as the most common
-        superstatistics analysis relies on Gaussian increments, which have a
-        kurtosis of `3`.
+        superstatistical time :math:`T`. Defaults to `3.`, as the most common
+        superstatistics analyses rely on Gaussian increments, which have a
+        kurtosis of `3`. If `'skew'` or `'mean'` from scipy are selected and
+        threshold is `None`, then threshold defaults to `0.`.
 
     moment: str (default `'kurtosis'`)
         The moment under examination in finding the long superstatistical time.
-        Should be a function of ``scipy.stats`` such as `['skew', 'kurtosis']`
-        or ``numpy``'s `['mean','var']`. Defaults to `'kurtosis'`, as this is
+        Should be a function of `scipy.stats` such as `['skew', 'kurtosis']`
+        or `numpy`'s `['mean','var']`. Defaults to `'kurtosis'`, as this is
         the common central statistical moment under examination.
 
-    tol: float (default `0.05`)
+    tol: float (default `0.05`) - Not implemented
         The percentage error acceptable to find the long time. Should be a
         positive value between `0` and `1`.
 
@@ -68,15 +69,26 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
         doi: 10.1016/S0378-4371(03)00019-0
     """
 
+    # Force lag to be ints if given, ensure lag > 1
+    if lag:
+        lag = lag[lag > 1]
+        lag = np.round(lag).astype(int)
+
+    # Assert if timeseries is 1 dimensional
+    if timeseries.ndim > 1:
+        assert timeseries.shape[1] == 1, "Timeseries needs to be 1 dimensional"
+
+    timeseries = timeseries.reshape(-1, 1)
+
     # length of the timeseries
     N = timeseries.shape[0]
 
     # check if the selected moment is either in numpy or scipy
     try:
-        selected_moment = getattr(np, moment)
+        selected_moment = getattr(stats, moment)
     except:
         try:
-            selected_moment = getattr(stats, moment)
+            selected_moment = getattr(np, moment)
         except:
             raise Exception("The moment you have selected is "
                             "not part of numpy or scipy.")
@@ -94,13 +106,21 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
     kwargs_for_scipy['nan_policy'] = 'omit'
     if moment == 'kurtosis':
         kwargs_for_scipy['fisher'] = False
+        if not threshold:
+            threshold = 3.
+
+    if moment in ['skew', 'mean', 'nanmean']:
+        if not threshold:
+            threshold = 0.
+
+    if threshold is None:
+        raise ValueError("A threshold (float) must be given.")
 
     # function to either run through or find root
     def fun(j, operation):
         # limiting conditions
-        j = 3 if j < 3 else j
-        j = N // 2 if j > (N // 2) else j
-        j = int(j)
+        j = 3 if j < 3 else int(j)
+        j = int(N // 2) if j > (N // 2) else int(j)
         x = selected_moment(
                         timeseries[:N - N % j].reshape((N - N % j) // j, j),
                         axis=1,
