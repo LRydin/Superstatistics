@@ -26,7 +26,7 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
         find the typical long superstatistical time with a root finder, and then
         after adjust the lag for plotting purposes. If given, `lag > 1`.
 
-    threshold: float (default `3.`)
+    threshold: scalar (default `3`)
         The threshold expected to be crossed to estimate the long
         superstatistical time :math:`T`. Defaults to `3.`, as the most common
         superstatistics analyses rely on Gaussian increments, which have a
@@ -39,7 +39,7 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
         or `numpy`'s `['mean','var']`. Defaults to `'kurtosis'`, as this is
         the common central statistical moment under examination.
 
-    tol: float (default `0.05`) - Not implemented
+    tol: scalar (default `0.05`) - Not implemented
         The percentage error acceptable to find the long time. Should be a
         positive value between `0` and `1`.
 
@@ -112,7 +112,7 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
             threshold = 0.
 
     if threshold is None:
-        raise ValueError("A threshold (float) must be given.")
+        raise ValueError("A scalar threshold must be given.")
 
     # function to either run through or find root
     def fun(j, operation):
@@ -169,7 +169,7 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
             return part_T
 
 
-def volatility(timeseries: np.array, T: int, bracket: list=[5, 5]) -> np.array:
+def volatility(timeseries: np.array, T: int, bracket: list=[5, 7]) -> np.array:
     """
     Extract the (inverse) volatility β of a timeseries given a long
     superstatistical time :math:`T`. The (inverse) volatility β is given by
@@ -192,7 +192,7 @@ def volatility(timeseries: np.array, T: int, bracket: list=[5, 5]) -> np.array:
         The long superstatistical time :math:`T`. It can be obtained with
         `estimate_long_time()`.
 
-    bracket: list of 2 float (default `[5,5]`)
+    bracket: list of 2 scalars (default `[5, 7]`)
         Determines the bounds in standard devations around the mean that is kept
         after each moment estimation to remove extreme values.
 
@@ -220,39 +220,8 @@ def volatility(timeseries: np.array, T: int, bracket: list=[5, 5]) -> np.array:
 
     return beta
 
-def _fit_distributions(beta: np.array, dists: list=None,
-    lim: list=[None, None]) -> dict:
-
-    if not isinstance(lim, list):
-        raise ValueError("lim must be a list with a numerical lower and upper "
-                         "bound. 'None' can be use for no bound.")
-    if not all(isinstance(x, (float, int, type(None))) for x in lim):
-        raise ValueError("lim must be a list with a numerical lower and upper "
-                         "bound. `None` can be use for no bound.")
-
-    dists = ['lognorm', 'gengamma', 'invgamma', 'f']
-
-    kwargs_for_scipy = {}
-    for dist in dists:
-        kwargs_for_scipy[dist] = {}
-        if dist == 'gengamma':
-            kwargs_for_scipy['gengamma'] = {'fc': 1}
-
-    # ensure beta is positive and apply bounds
-    beta = beta[beta>0]
-    if lim[0]:
-        beta = beta[(beta>lim[0])]
-    if lim[1]:
-        beta = beta[(beta<lim[1])]
-
-    dictionary_of_fits = {dist:
-        getattr(stats, dist).fit(beta, **kwargs_for_scipy[dist])
-        for dist in dists}
-
-    return dictionary_of_fits
-
-def find_best_distribution(beta: np.array, bins=300, dists: list=None,
-    lim: list=[None, None]) -> np.array:
+def find_best_distribution(beta: np.array, bins=100, dists: list=None,
+    lim: list=[None, None]) -> (dict, dict):
     """
     Estimates the Kullback–Leibler divergence between the distribution of the
     volatility beta and four standard distributions commonly used in
@@ -263,7 +232,20 @@ def find_best_distribution(beta: np.array, bins=300, dists: list=None,
     beta: np.array
         The (inverse) volatilities β.
 
-    ... unfinished
+    bins: int or sequence of scalars or str, optional (default `100`)
+        Bins, following `numpy`'s `histogram`.
+
+    dist: list (default are scipy's `['lognorm', 'gamma', 'invgamma', 'f']` )
+        List of distributions to fit. If none given (default), the four commonly
+        employed superstatistical distributions are used: a lognormal
+        distribution, a Gamma (or continuous χ²) distribution, and inverse Gamma
+        distribution, and an f distribution. Note that, generally, f
+        distributions will fit better than any other due to their flexibiltiy (f
+        distributions have 4 parameters, in comparison with all others, which
+        only have 3 parameters).
+
+    lim: list of 2 scalars (default `[None, None]`)
+        Left and right lims to apply to the (inverse) volatilities β.
 
     Returns
     -------
@@ -271,23 +253,57 @@ def find_best_distribution(beta: np.array, bins=300, dists: list=None,
         A dictionary with the scipy distributions used to fit the data and the
         resulting Kullback–Leibler divergence between the distribution of the
         volatility beta and the fitted distributions. Note that different
-        distributions have different number of parameters. For the four standard
-        distributions commonly used in superstatistics, lognormal distribution
-        has 2 parameters, gamma and inverse-gamma have 3 parameters, and the F
-        distribution has 4 parameters.
+        distributions have different number of parameters.
 
+    dictionary_of_fits: dict
+        Dictionary with fitted parameters for each given or preset
+        distributions, useful to plot the results.
+
+    Notes
+    -----
+     - `NumPy's histogram <https://numpy.org/doc/stable/reference/generated\
+     /numpy.histogram.html>`_
     """
 
     if not dists:
-        dists = ['lognorm', 'gengamma', 'invgamma', 'f']
+        dists = ['lognorm', 'gamma', 'invgamma', 'f']
 
-    d = _fit_distributions(beta=beta, dists=dists, lim=lim)
+    # ensure beta is positive and apply bounds
+    beta = beta[beta>0]
+    if lim[0]:
+        beta = beta[(beta>lim[0])]
+    if lim[1]:
+        beta = beta[(beta<lim[1])]
+
+    dictionary_of_fits = _fit_distributions(beta=beta, dists=dists, lim=lim)
 
     hist, _  = np.histogram(beta, bins=bins, density=True)
     edge = (_[1:] + _[:-1]) / 2
 
     KL = {dist: stats.entropy(hist,
-            getattr(stats, dist).pdf(edge, *d[dist])
+            getattr(stats, dist).pdf(edge, *dictionary_of_fits[dist])
             ) for dist in dists}
 
-    return KL
+    return KL, dictionary_of_fits
+
+def _fit_distributions(beta: np.array, dists: list=None,
+    lim: list=[None, None], kwargs_for_scipy: dict={}) -> dict:
+
+    if not isinstance(lim, list):
+        raise ValueError("lim must be a list with a numerical lower and upper "
+                         "bound. 'None' can be use for no bound.")
+    if not all(isinstance(x, (float, int, type(None))) for x in lim):
+        raise ValueError("lim must be a list with a numerical lower and upper "
+                         "bound. `None` can be use for no bound.")
+
+    if not dists:
+        dists = ['lognorm', 'gamma', 'invgamma', 'f']
+
+    kwds = {ele: {} for ele in dists}
+    kwds.update(kwargs_for_scipy)
+
+    dictionary_of_fits = {dist:
+        getattr(stats, dist).fit(beta, **kwds[dist])
+        for dist in dists}
+
+    return dictionary_of_fits
