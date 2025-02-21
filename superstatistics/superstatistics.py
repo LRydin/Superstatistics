@@ -9,10 +9,10 @@ from scipy.optimize import root_scalar
 from functools import partial
 
 
-def estimate_long_time(timeseries: np.array, lag: np.array=None,
+def estimate_long_time(timeseries: np.ndarray, lag: np.ndarray=None,
                        threshold: float=None, moment: str='kurtosis',
                        tol: float=0.05, quantiles: list=[False],
-                       rtol: float=None) -> np.array:
+                       rtol: float=None) -> int | np.ndarray:
     r"""
     To find the long superstatistical time :math:`T` one needs to examine the
     distribution of the segments of the data.
@@ -42,28 +42,28 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
         or `numpy`'s `['mean','var']`. Defaults to `'kurtosis'`, as this is
         the common central statistical moment under examination.
 
-    tol: scalar (default `0.05`) - Not implemented
-        The percentage error acceptable to find the long time. Should be a
-        positive value between `0` and `1`.
-
     quantiles: list (default `[False]`)
         If values are given, returns the quantiles, accordingly, around the
         estimated long superstatistical time (if lag is given).
 
+    rtol: scalar (default `None`)
+        Tolerance for `scipy`'s `root_scalar` method. Default is `None`, which
+        runs a procedural decreasing tolerance as well as a counter check with
+        various root-scalar methods.
+
     Returns
     -------
     T: int, np.array
-        The long superstatistical time (or an set of values, in case more than)
-        one is found. While using the standard Newton–Raphson method, only one
-        value is returned. If `full` is `True` and a `lag` is given, returns
-        the full scan over `T`. Useful for plotting `T` vs `lag`. Suggested to
-        first run without a single time to locate `T` and they adjust `lag`
-        accordingly
+        The long superstatistical time T. While using the standard root-finding
+        method, only one value is returned. If `full` is `True` and a `lag` is
+        given, returns the full scan over `T`. Useful for plotting `T` vs `lag`.
+        Suggested to first run without a single time to locate `T` and they
+        adjust `lag` accordingly.
 
     Notes
     -----
      - `SciPy scalar root finder <https://docs.scipy.org/doc/scipy/reference\
-    /generated/scipy.optimize.root_scalar.html#scipy.optimize.root_scalar>`_
+     /generated/scipy.optimize.root_scalar.html>`_
 
     References
     ----------
@@ -142,76 +142,85 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
                             partial(np.quantile, q=q)
                           ) for q in quantiles]
     if lag is None:
+
+        # methods to use for root_scalar
+        methods = ['secant', 'bisect', 'brentq', 'brenth', 'ridder']
+
         # catch warning, as this use root_scalar with integers, which can
         # result in warnings
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-            methods = ['secant', 'bisect', 'brentq', 'brenth', 'ridder']
+            # If no rtol is given, try the following, else use give
             if rtol is None:
-                T_list = {}
-                for rtol_ in [1e0, 5e-1, 1e-1, 5e-2, 1e-2, 5e-3, 1e-3]:
-                    try:
-                        method = 'secant'
-                        _ = root_scalar(fun, args=(np.nanmean),
-                            method=method, x0=30, x1=50, rtol=rtol_)
-                        if _.converged:
-                            logging.info(
-                                f"Converged with {method} to a "
-                                f"floating long time T={_.root:.2f}"
-                            )
-                            T_list[method] = _
-                        else:
-                            logging.info(
-                                f"Failed to converge with rtol of "
-                                "{rtol_:.3f}"
-                            )
-                    except:
+                rtol = [1e0, 5e-1, 1e-1, 5e-2, 1e-2, 5e-3, 1e-3]
+            else:
+                rtol = [rtol]
+
+            # Store results here
+            T_list = {}
+            for rtol_ in rtol:
+                try:
+                    method = 'secant'
+                    _ = root_scalar(fun, args=(np.nanmean),
+                        method=method, x0=30, x1=50, rtol=rtol_)
+                    if _.converged:
                         logging.info(
-                            f"Failed to converge with rtol of {rtol_:.3f}"
+                            f"Converged with {method} to a "
+                            f"floating long time T={_.root:.2f}"
                         )
-                        if rtol_ == 1.:
-                            raise ValueError("The root solver did not "
-                                "converge to a long time T")
-                        else:
-                            pass
-                logging.info(
-                    f"Conferring result with bracketed root_scalar methods"
-                )
-                for method in methods[1:]:
-                    try:
-                        T_list[method] = root_scalar(fun, args=(np.nanmean),
-                            method=method, bracket=[3, T_list['secant'].root*3])
+                        T_list[method] = _
+                    else:
                         logging.info(
-                            f"Converged with bracketed method {method} to a "
-                            f"floating long time T={T_list[method].root:.2f}"
+                            f"Failed to converge with rtol of "
+                            "{rtol_:.3f}"
                         )
-                    except:
-                        logging.info(
-                            f"Failed to converge with bracketed method: {method}"
-                        )
+                except:
+                    logging.info(
+                        f"Failed to converge with rtol of {rtol_:.3f}"
+                    )
+                    if rtol_ == 1.:
+                        raise ValueError("The root solver did not "
+                            "converge to a long time T")
+                    else:
+                        pass
+            logging.info(
+                f"Conferring result with bracketed root_scalar methods"
+            )
+            for method in methods[1:]:
+                try:
+                    T_list[method] = root_scalar(fun, args=(np.nanmean),
+                        method=method, bracket=[3, T_list['secant'].root*3])
+                    logging.info(
+                        f"Converged with bracketed method {method} to a "
+                        f"floating long time T={T_list[method].root:.2f}"
+                    )
+                except:
+                    logging.info(
+                        f"Failed to converge with bracketed method: {method}"
+                    )
 
 
-    # Check if all the methods that converged agree on the estimated long time
-    roots_dict = {method: round(T_list[method].root) for method in methods
-        if T_list[method].converged}
-    roots = [x for x in roots_dict.values() if x is not None]
-    if all(x==roots[0] for x in roots):
-        logging.info(
-            f"All converging root_scalar methods agree"
-        )
-        root = roots[0]
-    else:
-        warn_method = ["   {:<6}: {:}".format(k, roots_dict[k]) + '\n'
-            for k in roots_dict.keys()]
+        # Check if all the methods that converged agree on the estimated long time
+        roots_dict = {method: round(T_list[method].root) for method in methods
+            if T_list[method].converged}
+        roots = [x for x in roots_dict.values() if x is not None]
+        if all(x==roots[0] for x in roots):
+            logging.info(
+                f"All converging root_scalar methods agree"
+            )
+            root = roots[0]
+        else:
+            warn_method = ["   {:<6}: {:}".format(k, roots_dict[k]) + '\n'
+                for k in roots_dict.keys()]
 
-        logging.warning(
-            "Not all root_scalar methods agreed on the long time: \n" +
-            "".join(warn_method) +
-            "Retuning the mode (most common answer)."
-        )
+            logging.warning(
+                "Not all root_scalar methods agreed on the long time: \n" +
+                "".join(warn_method) +
+                "Retuning the mode (most common answer)."
+            )
 
-        root = max(set(roots), key=roots.count)
+            root = max(set(roots), key=roots.count)
 
     if lag is None:
         # if (T_list['secant'].converged and T_list['secant'].root > 2 and
