@@ -1,5 +1,5 @@
-from .superstatistics import estimate_long_time, volatility,
-    find_best_distribution
+from .superstatistics import (estimate_long_time, volatility,
+    find_best_distribution)
 
 __name__ = "Superstatistics"
 __version__ = "0.1.0"
