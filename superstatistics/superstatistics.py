@@ -1,16 +1,19 @@
 # This is the main module of superstatistics.
 
 import warnings
+import logging
 
 import numpy as np
 from scipy import stats
 from scipy.optimize import root_scalar
 from functools import partial
 
+
 def estimate_long_time(timeseries: np.array, lag: np.array=None,
                        threshold: float=None, moment: str='kurtosis',
-                       tol: float=0.05, quantiles: list=[False]) -> np.array:
-    """
+                       tol: float=0.05, quantiles: list=[False],
+                       rtol: float=None) -> np.array:
+    r"""
     To find the long superstatistical time :math:`T` one needs to examine the
     distribution of the segments of the data.
 
@@ -144,25 +147,82 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-            T = root_scalar(fun, args=(np.nanmean), x0=10, x1=30)
+            methods = ['secant', 'bisect', 'brentq', 'brenth', 'ridder']
+            if rtol is None:
+                T_list = {}
+                for rtol_ in [1e0, 5e-1, 1e-1, 5e-2, 1e-2, 5e-3, 1e-3]:
+                    try:
+                        method = 'secant'
+                        _ = root_scalar(fun, args=(np.nanmean),
+                            method=method, x0=30, x1=50, rtol=rtol_)
+                        if _.converged:
+                            logging.info(
+                                f"Converged with {method} to a "
+                                f"floating long time T={_.root:.2f}"
+                            )
+                            T_list[method] = _
+                        else:
+                            logging.info(
+                                f"Failed to converge with rtol of "
+                                "{rtol_:.3f}"
+                            )
+                    except:
+                        logging.info(
+                            f"Failed to converge with rtol of {rtol_:.3f}"
+                        )
+                        if rtol_ == 1.:
+                            raise ValueError("The root solver did not "
+                                "converge to a long time T")
+                        else:
+                            pass
+                logging.info(
+                    f"Conferring result with bracketed root_scalar methods"
+                )
+                for method in methods[1:]:
+                    try:
+                        T_list[method] = root_scalar(fun, args=(np.nanmean),
+                            method=method, bracket=[3, T_list['secant'].root*3])
+                        logging.info(
+                            f"Converged with bracketed method {method} to a "
+                            f"floating long time T={T_list[method].root:.2f}"
+                        )
+                    except:
+                        logging.info(
+                            f"Failed to converge with bracketed method: {method}"
+                        )
+
+
+    # Check if all the methods that converged agree on the estimated long time
+    roots_dict = {method: round(T_list[method].root) for method in methods
+        if T_list[method].converged}
+    roots = [x for x in roots_dict.values() if x is not None]
+    if all(x==roots[0] for x in roots):
+        logging.info(
+            f"All converging root_scalar methods agree"
+        )
+        root = roots[0]
+    else:
+        warn_method = ["   {:<6}: {:}".format(k, roots_dict[k]) + '\n'
+            for k in roots_dict.keys()]
+
+        logging.warning(
+            "Not all root_scalar methods agreed on the long time: \n" +
+            "".join(warn_method) +
+            "Retuning the mode (most common answer)."
+        )
+
+        root = max(set(roots), key=roots.count)
 
     if lag is None:
-        if T.converged and T.root > 2 and T.root < N // 2 - 1:
-            return int(T.root)
+        # if (T_list['secant'].converged and T_list['secant'].root > 2 and
+        #     T_list['secant'].root) < N // 2 - 1:
+        if root > 2 and root < N // 2 - 1:
+            return root
         else:
             raise ValueError("The root solver did not converge to a "
                              "long time T.")
 
     if isinstance(lag, (np.ndarray, list)):
-        # find the lag that minimises the problem
-
-        # seems to not work. A warning to increase lag would be nice
-        # if np.min(np.abs(np.array(part_T) - 0)) > tol:
-        #     warnings.warn("The given lag does not cover the transition "
-        #                   "wherein the long time T can be found.",
-        #                   RuntimeWarning)
-
-        # T = lag[np.argmin(np.abs(np.array(part_T) - 0))]
         if quantiles[0]:
             return part_T, part_T_quantiles
         else:
@@ -170,7 +230,7 @@ def estimate_long_time(timeseries: np.array, lag: np.array=None,
 
 
 def volatility(timeseries: np.array, T: int, bracket: list=[5, 7]) -> np.array:
-    """
+    r"""
     Extract the (inverse) volatility β of a timeseries given a long
     superstatistical time :math:`T`. The (inverse) volatility β is given by
 
@@ -222,7 +282,7 @@ def volatility(timeseries: np.array, T: int, bracket: list=[5, 7]) -> np.array:
 
 def find_best_distribution(beta: np.array, bins=100, dists: list=None,
     lim: list=[None, None]) -> (dict, dict):
-    """
+    r"""
     Estimates the Kullback–Leibler divergence between the distribution of the
     volatility beta and four standard distributions commonly used in
     superstatistics: lognormal, gamma, inverse-gamma, and the F distribution.
@@ -239,13 +299,18 @@ def find_best_distribution(beta: np.array, bins=100, dists: list=None,
         List of distributions to fit. If none given (default), the four commonly
         employed superstatistical distributions are used: a lognormal
         distribution, a Gamma (or continuous χ²) distribution, and inverse Gamma
-        distribution, and an f distribution. Note that, generally, f
-        distributions will fit better than any other due to their flexibiltiy (f
+        distribution, and an f distribution. Note that generally f distributions
+        will fit better than any other due to their flexibiltiy (f
         distributions have 4 parameters, in comparison with all others, which
         only have 3 parameters).
 
     lim: list of 2 scalars (default `[None, None]`)
         Left and right lims to apply to the (inverse) volatilities β.
+
+    Notes
+    -----
+     - `NumPy's histogram <https://numpy.org/doc/stable/reference/generated\
+     /numpy.histogram.html>`_
 
     Returns
     -------
@@ -253,16 +318,11 @@ def find_best_distribution(beta: np.array, bins=100, dists: list=None,
         A dictionary with the scipy distributions used to fit the data and the
         resulting Kullback–Leibler divergence between the distribution of the
         volatility beta and the fitted distributions. Note that different
-        distributions have different number of parameters.
+        distributions have different number of parameters. For the four standard
+        distributions commonly used in superstatistics, lognormal distribution
+        has 2 parameters, gamma and inverse-gamma have 3 parameters, and the F
+        distribution has 4 parameters.
 
-    dictionary_of_fits: dict
-        Dictionary with fitted parameters for each given or preset
-        distributions, useful to plot the results.
-
-    Notes
-    -----
-     - `NumPy's histogram <https://numpy.org/doc/stable/reference/generated\
-     /numpy.histogram.html>`_
     """
 
     if not dists:
@@ -275,16 +335,16 @@ def find_best_distribution(beta: np.array, bins=100, dists: list=None,
     if lim[1]:
         beta = beta[(beta<lim[1])]
 
-    dictionary_of_fits = _fit_distributions(beta=beta, dists=dists, lim=lim)
+    d = _fit_distributions(beta=beta, dists=dists, lim=lim)
 
     hist, _  = np.histogram(beta, bins=bins, density=True)
     edge = (_[1:] + _[:-1]) / 2
 
     KL = {dist: stats.entropy(hist,
-            getattr(stats, dist).pdf(edge, *dictionary_of_fits[dist])
+            getattr(stats, dist).pdf(edge, *d[dist])
             ) for dist in dists}
 
-    return KL, dictionary_of_fits
+    return KL, d
 
 def _fit_distributions(beta: np.array, dists: list=None,
     lim: list=[None, None], kwargs_for_scipy: dict={}) -> dict:
