@@ -26,7 +26,7 @@ jobs:
         pip install -r requirements.txt
     - name: Testing standard packages with coverage
       run: |
-        coverage run -m pytest -rP test/test_functions.py
+        coverage run -m pytest -rP test/
 
     - name: Upload code coverage
       uses: codecov/codecov-action@v5

@@ -149,7 +149,7 @@ def estimate_long_time(timeseries: np.ndarray, lag: np.ndarray=None,
     if lag is None:
 
         # methods to use for root_scalar
-        methods = ['secant', 'bisect', 'brentq', 'brenth', 'ridder']
+        methods = ['secant', 'bisect', 'brentq', 'brenth', 'ridder', 'toms748']
 
         # catch warning, as this use root_scalar with integers, which can
         # result in warnings
@@ -216,7 +216,7 @@ def estimate_long_time(timeseries: np.ndarray, lag: np.ndarray=None,
             )
             root = roots[0]
         else:
-            warn_method = ["   {:<6}: {:}".format(k, roots_dict[k]) + '\n'
+            warn_method = ["   {:>7}: {:}".format(k, roots_dict[k]) + '\n'
                 for k in roots_dict.keys()]
 
             logging.warning(
@@ -250,7 +250,7 @@ def volatility(timeseries: np.array, T: int, bracket: list=[5, 7]) -> np.array:
 
     .. math::
 
-        β = \frac{1}{\langle x(t)^2 \rangle_{T} - \langle x(t) \rangle_{T}^2}.
+        β = \frac{1}{\langle x(t)^2 \rangle_{T} - \langle x(t) \rangle_{T}^2},
 
     where :math:`x(t)` is the timeseries and :math:` \langle\cdot\rangle` is the
     expected value. The (inverse) volatility β is bounded between
@@ -333,22 +333,29 @@ def find_best_distribution(beta: np.array, bins=100, dists: list=None,
         resulting Kullback–Leibler divergence between the distribution of the
         volatility beta and the fitted distributions. Note that different
         distributions have different number of parameters. For the four standard
-        distributions commonly used in superstatistics, lognormal distribution
-        has 2 parameters, gamma and inverse-gamma have 3 parameters, and the F
-        distribution has 4 parameters.
-
+        distributions commonly used in superstatistics, the lognormal
+        distribution has 2 parameters, the gamma and inverse-gamma distributions
+        have 3 parameters, and the F distribution has 4 parameters.
     """
 
     if not dists:
         dists = ['lognorm', 'gamma', 'invgamma', 'f']
 
-    # ensure beta is positive and apply bounds
+    if not isinstance(lim, list):
+        raise ValueError("lim must be a list with a numerical lower and upper "
+                         "bound. 'None' can be use for no bound.")
+    if not all(isinstance(x, (float, int, type(None))) for x in lim):
+        raise ValueError("lim must be a list with a numerical lower and upper "
+                         "bound. `None` can be use for no bound.")
+
+    # ensure beta is positive and apply bounds (None as default)
     beta = beta[beta>0]
     if lim[0]:
         beta = beta[(beta>lim[0])]
     if lim[1]:
         beta = beta[(beta<lim[1])]
 
+    # Heavy lifting
     d = _fit_distributions(beta=beta, dists=dists, lim=lim)
 
     hist, _  = np.histogram(beta, bins=bins, density=True)
@@ -362,13 +369,6 @@ def find_best_distribution(beta: np.array, bins=100, dists: list=None,
 
 def _fit_distributions(beta: np.array, dists: list=None,
     lim: list=[None, None], kwargs_for_scipy: dict={}) -> dict:
-
-    if not isinstance(lim, list):
-        raise ValueError("lim must be a list with a numerical lower and upper "
-                         "bound. 'None' can be use for no bound.")
-    if not all(isinstance(x, (float, int, type(None))) for x in lim):
-        raise ValueError("lim must be a list with a numerical lower and upper "
-                         "bound. `None` can be use for no bound.")
 
     if not dists:
         dists = ['lognorm', 'gamma', 'invgamma', 'f']

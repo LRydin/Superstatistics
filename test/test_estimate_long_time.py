@@ -5,9 +5,10 @@ import sys
 sys.path.append("../")
 from superstatistics import estimate_long_time
 
-def test_functions():
+def test_estimate_long_time():
     for alpha in [1.9, 1.8, 1.7]:
 
+        # Timeseries
         timeseries = st.levy_stable.rvs(1.9, 0, size=100000)
         lag = np.linspace(1, 50, 50, dtype=int)
 
